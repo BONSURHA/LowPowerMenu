@@ -307,12 +307,14 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .default).async {
                 var error: NSDictionary?
-                if let appleScript = NSAppleScript(source: script) {
-                    appleScript.executeAndReturnError(&error)
-                    if let error = error {
-                        continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"]))
-                        return
-                    }
+                guard let appleScript = NSAppleScript(source: script) else {
+                    continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize AppleScript"]))
+                    return
+                }
+                appleScript.executeAndReturnError(&error)
+                if let error = error {
+                    continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"]))
+                    return
                 }
                 continuation.resume()
             }
@@ -327,12 +329,14 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .default).async {
                 var error: NSDictionary?
-                if let appleScript = NSAppleScript(source: script) {
-                    appleScript.executeAndReturnError(&error)
-                    if let error = error {
-                        continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"]))
-                        return
-                    }
+                guard let appleScript = NSAppleScript(source: script) else {
+                    continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize AppleScript"]))
+                    return
+                }
+                appleScript.executeAndReturnError(&error)
+                if let error = error {
+                    continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"]))
+                    return
                 }
                 continuation.resume()
             }

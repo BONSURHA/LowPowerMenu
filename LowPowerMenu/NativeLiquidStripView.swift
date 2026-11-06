@@ -132,33 +132,33 @@ public struct NativeLiquidStripView: View {
                 HStack(spacing: 0) {
                     // Cycle Count (clean number without "cycles")
                     HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
                         Text("\(monitor.cycleCount ?? 0)")
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     
                     // Dynamic Battery Health Symbol + Percentage
                     HStack(spacing: 4) {
-                        Image(systemName: batteryHealthSymbol(for: monitor.batteryHealthPercent ?? 100))
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
                         Text("\(monitor.batteryHealthPercent ?? 100)%")
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Image(systemName: batteryHealthSymbol(for: monitor.batteryHealthPercent ?? 100))
+                            .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     
                     // Signed Instantaneous Wattage
                     HStack(spacing: 4) {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
                         Text(formattedWattage)
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -225,6 +225,7 @@ public struct NativeLiquidStripView: View {
                     }
                     .font(.system(size: 10, weight: .semibold))
                     .buttonStyle(.borderedProminent)
+                    .tint(.orange)
                     .controlSize(.mini)
                 }
                 .padding(8)
