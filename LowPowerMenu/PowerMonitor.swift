@@ -21,6 +21,7 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         rawMinutesRemaining: nil
     )
     @Published public private(set) var isSudoersConfigured: Bool = false
+    public var isHelperConfigured: Bool { checkSudoersConfiguration() }
     @Published public private(set) var isExecuting: Bool = false
     
     // Hardware battery metrics
@@ -164,14 +165,16 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
             }
         }
         
-        // Current Wattage (Power Consumption)
-        if let telemetry = dict["PowerTelemetryData"] as? [String: Any],
-           let sysLoad = (telemetry["SystemLoad"] as? Double) ?? (telemetry["SystemLoad"] as? Int).map(Double.init),
-           sysLoad > 0 {
-            currentWattage = sysLoad / 1000.0
-        } else if let amperage = (dict["Amperage"] as? Double) ?? (dict["Amperage"] as? Int).map(Double.init),
-                  let voltage = (dict["Voltage"] as? Double) ?? (dict["Voltage"] as? Int).map(Double.init) {
-            currentWattage = abs(amperage * voltage / 1_000_000.0)
+        // Current Wattage (Power Consumption & Flow)
+        if let amperage = (dict["Amperage"] as? Double) ?? (dict["Amperage"] as? Int).map(Double.init),
+           let voltage = (dict["Voltage"] as? Double) ?? (dict["Voltage"] as? Int).map(Double.init) {
+            // AppleSmartBattery Amperage is signed: negative when discharging, positive when charging
+            currentWattage = (amperage * voltage) / 1_000_000.0
+        } else if let telemetry = dict["PowerTelemetryData"] as? [String: Any],
+                  let sysLoad = (telemetry["SystemLoad"] as? Double) ?? (telemetry["SystemLoad"] as? Int).map(Double.init),
+                  sysLoad > 0 {
+            // Fallback to system load: negative on battery discharging, positive on AC
+            currentWattage = (currentPowerSource == .battery ? -1.0 : 1.0) * (sysLoad / 1000.0)
         }
         
         // Adapter Watts
@@ -282,9 +285,13 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
     }
     
     // MARK: - Sudoers Helper
-    public func checkSudoersConfiguration() {
+    @discardableResult
+    public func checkSudoersConfiguration() -> Bool {
         let exists = FileManager.default.fileExists(atPath: SudoersHelper.targetPath)
-        isSudoersConfigured = exists
+        if isSudoersConfigured != exists {
+            isSudoersConfigured = exists
+        }
+        return exists
     }
     
     public func installSudoersRule() async throws {

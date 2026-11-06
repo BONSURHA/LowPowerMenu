@@ -95,4 +95,26 @@ final class PowerCoreTests: XCTestCase {
         let rule = SudoersHelper.generateRule(username: "nicolo")
         XCTAssertEqual(rule, "nicolo ALL=(root) NOPASSWD: /usr/bin/pmset\n")
     }
+    
+    func testSudoersHelperConfigured() {
+        let exists = FileManager.default.fileExists(atPath: SudoersHelper.targetPath)
+        XCTAssertEqual(SudoersHelper.isConfigured(), exists)
+    }
+    
+    func testWattageCalculation() {
+        // Discharging (negative amperage)
+        let dischargeWatts = PowerTelemetryHelper.calculateWattage(amperage: -1500.0, voltage: 12000.0)
+        XCTAssertEqual(dischargeWatts, -18.0, accuracy: 0.001)
+        
+        // Charging (positive amperage)
+        let chargeWatts = PowerTelemetryHelper.calculateWattage(amperage: 3500.0, voltage: 12000.0)
+        XCTAssertEqual(chargeWatts, 42.0, accuracy: 0.001)
+        
+        // System load fallback
+        let batterySysLoadWatts = PowerTelemetryHelper.calculateWattage(systemLoad: 25000.0, isBattery: true)
+        XCTAssertEqual(batterySysLoadWatts, -25.0, accuracy: 0.001)
+        
+        let acSysLoadWatts = PowerTelemetryHelper.calculateWattage(systemLoad: 30000.0, isBattery: false)
+        XCTAssertEqual(acSysLoadWatts, 30.0, accuracy: 0.001)
+    }
 }

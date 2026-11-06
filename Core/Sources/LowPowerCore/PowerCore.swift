@@ -103,4 +103,18 @@ public struct SudoersHelper: Sendable {
     public static func generateRule(username: String) -> String {
         "\(username) ALL=(root) NOPASSWD: /usr/bin/pmset\n"
     }
+    
+    public static func isConfigured(fileManager: FileManager = .default) -> Bool {
+        fileManager.fileExists(atPath: targetPath)
+    }
+}
+
+public struct PowerTelemetryHelper: Sendable {
+    public static func calculateWattage(amperage: Double, voltage: Double) -> Double {
+        (amperage * voltage) / 1_000_000.0
+    }
+    
+    public static func calculateWattage(systemLoad: Double, isBattery: Bool) -> Double {
+        (isBattery ? -1.0 : 1.0) * (systemLoad / 1000.0)
+    }
 }
