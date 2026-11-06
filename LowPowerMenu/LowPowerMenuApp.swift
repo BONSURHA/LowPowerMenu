@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 import LowPowerCore
 
 @main
@@ -20,6 +21,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private var statusMenuController: StatusMenuController!
     private var settingsWindow: NSWindow?
+    private var cancellables = Set<AnyCancellable>()
     
     override init() {
         super.init()
@@ -51,11 +53,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
         
+        Publishers.CombineLatest(PowerMonitor.shared.$isLowPowerModeActive, PowerMonitor.shared.$currentPowerSource)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isLowPower, source in
+                let isOnAC = (source == .powerAdapter)
+                self?.statusMenuController.updateStatus(isLowPowerMode: isLowPower, isOnACPower: isOnAC)
+            }
+            .store(in: &cancellables)
+        
         // Initial UI sync
         updateUI()
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        cancellables.removeAll()
         NotificationCenter.default.removeObserver(self)
     }
     
@@ -74,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     private func updateUI() {
         let isLowPower = PowerMonitor.shared.isLowPowerModeActive
-        let isOnAC = PowerMonitor.shared.checkIfOnACPower()
+        let isOnAC = (PowerMonitor.shared.currentPowerSource == .powerAdapter) || PowerMonitor.shared.checkIfOnACPower()
         statusMenuController.updateStatus(isLowPowerMode: isLowPower, isOnACPower: isOnAC)
     }
     
