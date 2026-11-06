@@ -295,15 +295,19 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         
         let script = "do shell script \"install -m 0440 -o root -g wheel \(tempPath) \(SudoersHelper.targetPath) && visudo -cf \(SudoersHelper.targetPath) && rm -f \(tempPath)\" with administrator privileges"
         
-        try await Task.detached(priority: .userInitiated) {
-            var error: NSDictionary?
-            if let appleScript = NSAppleScript(source: script) {
-                appleScript.executeAndReturnError(&error)
-                if let error = error {
-                    throw NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"])
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .default).async {
+                var error: NSDictionary?
+                if let appleScript = NSAppleScript(source: script) {
+                    appleScript.executeAndReturnError(&error)
+                    if let error = error {
+                        continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"]))
+                        return
+                    }
                 }
+                continuation.resume()
             }
-        }.value
+        }
         await MainActor.run {
             self.checkSudoersConfiguration()
         }
@@ -311,15 +315,19 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
     
     public func removeSudoersRule() async throws {
         let script = "do shell script \"rm -f \(SudoersHelper.targetPath)\" with administrator privileges"
-        try await Task.detached(priority: .userInitiated) {
-            var error: NSDictionary?
-            if let appleScript = NSAppleScript(source: script) {
-                appleScript.executeAndReturnError(&error)
-                if let error = error {
-                    throw NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"])
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .default).async {
+                var error: NSDictionary?
+                if let appleScript = NSAppleScript(source: script) {
+                    appleScript.executeAndReturnError(&error)
+                    if let error = error {
+                        continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"]))
+                        return
+                    }
                 }
+                continuation.resume()
             }
-        }.value
+        }
         await MainActor.run {
             self.checkSudoersConfiguration()
         }
