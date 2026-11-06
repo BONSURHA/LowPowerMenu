@@ -75,7 +75,9 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshState()
+            Task { @MainActor [weak self] in
+                self?.refreshState()
+            }
         }
         
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -83,7 +85,9 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshState()
+            Task { @MainActor [weak self] in
+                self?.refreshState()
+            }
         }
     }
     
@@ -243,10 +247,12 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
             process.waitUntilExit()
             let exitCode = process.terminationStatus
             
-            var revertedPolicy: PowerPolicy? = nil
+            let revertedPolicy: PowerPolicy?
             if exitCode != 0 {
                 NSLog("LowPowerMenu: Failed to apply power policy (%@): exit code %d. Reverting to system policy.", policy.rawValue, exitCode)
                 revertedPolicy = PowerMonitor.readActualPolicyFromPmset()
+            } else {
+                revertedPolicy = nil
             }
             
             await MainActor.run {
@@ -281,7 +287,7 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         isSudoersConfigured = exists
     }
     
-    public func installSudoersRule() throws {
+    public func installSudoersRule() async throws {
         let username = NSUserName()
         let rule = SudoersHelper.generateRule(username: username)
         let tempPath = "/tmp/lowpowermenu_sudoers"
@@ -289,26 +295,34 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         
         let script = "do shell script \"install -m 0440 -o root -g wheel \(tempPath) \(SudoersHelper.targetPath) && visudo -cf \(SudoersHelper.targetPath) && rm -f \(tempPath)\" with administrator privileges"
         
-        var error: NSDictionary?
-        if let appleScript = NSAppleScript(source: script) {
-            appleScript.executeAndReturnError(&error)
-            if let error = error {
-                throw NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Sudoers install failed"])
+        try await Task.detached(priority: .userInitiated) {
+            var error: NSDictionary?
+            if let appleScript = NSAppleScript(source: script) {
+                appleScript.executeAndReturnError(&error)
+                if let error = error {
+                    throw NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"])
+                }
             }
+        }.value
+        await MainActor.run {
+            self.checkSudoersConfiguration()
         }
-        checkSudoersConfiguration()
     }
     
-    public func removeSudoersRule() throws {
+    public func removeSudoersRule() async throws {
         let script = "do shell script \"rm -f \(SudoersHelper.targetPath)\" with administrator privileges"
-        var error: NSDictionary?
-        if let appleScript = NSAppleScript(source: script) {
-            appleScript.executeAndReturnError(&error)
-            if let error = error {
-                throw NSError(domain: "LowPowerMenu", code: 2, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Failed to remove sudoers rule"])
+        try await Task.detached(priority: .userInitiated) {
+            var error: NSDictionary?
+            if let appleScript = NSAppleScript(source: script) {
+                appleScript.executeAndReturnError(&error)
+                if let error = error {
+                    throw NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"])
+                }
             }
+        }.value
+        await MainActor.run {
+            self.checkSudoersConfiguration()
         }
-        checkSudoersConfiguration()
     }
     
     public func openBatteryHealthSettings() {

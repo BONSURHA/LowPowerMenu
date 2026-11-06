@@ -114,22 +114,26 @@ struct SettingsView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Button("Remove", role: .destructive) {
-                                    do {
-                                        try powerMonitor.removeSudoersRule()
-                                    } catch {
-                                        installError = error.localizedDescription
-                                        showingErrorAlert = true
+                                    Task {
+                                        do {
+                                            try await powerMonitor.removeSudoersRule()
+                                        } catch {
+                                            installError = error.localizedDescription
+                                            showingErrorAlert = true
+                                        }
                                     }
                                 }
                                 .controlSize(.small)
                             }
                         } else {
                             Button("Install...") {
-                                do {
-                                    try powerMonitor.installSudoersRule()
-                                } catch {
-                                    installError = error.localizedDescription
-                                    showingErrorAlert = true
+                                Task {
+                                    do {
+                                        try await powerMonitor.installSudoersRule()
+                                    } catch {
+                                        installError = error.localizedDescription
+                                        showingErrorAlert = true
+                                    }
                                 }
                             }
                             .buttonStyle(.borderedProminent)
