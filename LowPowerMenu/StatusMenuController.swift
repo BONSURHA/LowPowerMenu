@@ -149,45 +149,37 @@ public final class StatusMenuController: NSObject, NSPopoverDelegate {
     
     @MainActor
     public func updateStatus(isLowPowerMode: Bool, isOnACPower: Bool = false) {
-        let updateBlock = { [weak self] in
-            guard let self = self, let item = self.statusItem, let button = item.button else { return }
-            
-            let hideOnAC = UserDefaults.standard.bool(forKey: "hideOnAC")
-            let targetVisibility = !(hideOnAC && isOnACPower)
-            if targetVisibility {
-                if button.isHidden {
-                    button.isHidden = false
-                }
-                if item.length != NSStatusItem.variableLength {
-                    item.length = NSStatusItem.variableLength
-                }
-            } else {
-                if !button.isHidden {
-                    button.isHidden = true
-                }
-                if item.length != 0 {
-                    item.length = 0
-                }
+        guard let item = self.statusItem, let button = item.button else { return }
+        
+        let hideOnAC = UserDefaults.standard.bool(forKey: "hideOnAC")
+        let targetVisibility = !(hideOnAC && isOnACPower)
+        if targetVisibility {
+            if button.isHidden {
+                button.isHidden = false
             }
-            
-            let symbolName = isLowPowerMode ? "dial.low.fill" : "dial.high"
-            let description = isLowPowerMode ? "Low Power Mode On" : "Low Power Mode Off"
-            
-            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-            if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description)?.withSymbolConfiguration(config) {
-                image.isTemplate = true
-                button.image = image
-            } else {
-                button.title = isLowPowerMode ? "LPM" : "OFF"
+            if item.length != NSStatusItem.variableLength {
+                item.length = NSStatusItem.variableLength
             }
-            
-            button.setAccessibilityValue(description)
+        } else {
+            if !button.isHidden {
+                button.isHidden = true
+            }
+            if item.length != 0 {
+                item.length = 0
+            }
         }
         
-        if Thread.isMainThread {
-            updateBlock()
+        let symbolName = isLowPowerMode ? "dial.low.fill" : "dial.high"
+        let description = isLowPowerMode ? "Low Power Mode On" : "Low Power Mode Off"
+        
+        let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description)?.withSymbolConfiguration(config) {
+            image.isTemplate = true
+            button.image = image
         } else {
-            DispatchQueue.main.async(execute: updateBlock)
+            button.title = isLowPowerMode ? "LPM" : "OFF"
         }
+        
+        button.setAccessibilityValue(description)
     }
 }

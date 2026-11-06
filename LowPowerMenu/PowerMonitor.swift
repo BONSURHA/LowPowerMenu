@@ -21,7 +21,9 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         rawMinutesRemaining: nil
     )
     @Published public private(set) var isSudoersConfigured: Bool = false
-    public var isHelperConfigured: Bool { checkSudoersConfiguration() }
+    public var isHelperConfigured: Bool {
+        FileManager.default.fileExists(atPath: "/private/etc/sudoers.d/lowpowermenu")
+    }
     @Published public private(set) var isExecuting: Bool = false
     
     // Hardware battery metrics
@@ -316,7 +318,7 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
             }
         }
         await MainActor.run {
-            self.checkSudoersConfiguration()
+            _ = self.checkSudoersConfiguration()
         }
     }
     
@@ -336,7 +338,7 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
             }
         }
         await MainActor.run {
-            self.checkSudoersConfiguration()
+            _ = self.checkSudoersConfiguration()
         }
     }
     
