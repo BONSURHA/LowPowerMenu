@@ -1,0 +1,25 @@
+# User & Local Documentation (Never push to remote)
+docs/
+.agents/
+AGENT.md
+
+# Xcode & macOS build artifacts
+.DS_Store
+*/.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+project.xcworkspace/xcuserdata/
+*.xcuserdatad
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Fastlane & Carthage
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+Carthage/Build/
