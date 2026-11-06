@@ -18,17 +18,9 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             // Header Info
             VStack(spacing: 8) {
-                if let icon = NSApp.applicationIconImage {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 64, height: 64)
-                } else {
-                    Image(systemName: "bolt.batteryblock.fill")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 64, height: 64)
-                        .foregroundStyle(.yellow)
-                }
+                Image(systemName: "dial.high")
+                    .font(.system(size: 40, weight: .medium))
+                    .foregroundStyle(.secondary)
                 
                 VStack(spacing: 2) {
                     Text("Low Power Menu")
