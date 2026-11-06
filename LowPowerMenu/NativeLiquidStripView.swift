@@ -53,7 +53,9 @@ public struct NativeLiquidStripView: View {
                     HStack(spacing: 5) {
                         if monitor.currentPowerSource == .powerAdapter {
                             if let watts = monitor.adapterWatts {
-                                Text("🔌 Power Adapter (\(watts)W)")
+                                Image(systemName: "powerplug.fill")
+                                    .font(.system(size: 11))
+                                Text("Power Adapter (\(watts)W)")
                                     .font(.system(size: 11, weight: .medium))
                             } else {
                                 Image(systemName: "powerplug.fill")
@@ -162,8 +164,9 @@ public struct NativeLiquidStripView: View {
                 // 3-Column Micro-Stats Row
                 HStack(spacing: 0) {
                     HStack(spacing: 4) {
-                        Text("🔄")
-                            .font(.system(size: 9))
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
                         Text("\(monitor.cycleCount ?? 0) cycles")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -171,8 +174,9 @@ public struct NativeLiquidStripView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     
                     HStack(spacing: 4) {
-                        Text("❤️")
-                            .font(.system(size: 9))
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
                         Text("\(monitor.batteryHealthPercent ?? 100)%")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -180,8 +184,9 @@ public struct NativeLiquidStripView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     
                     HStack(spacing: 4) {
-                        Text("⚡︎")
-                            .font(.system(size: 9, weight: .bold))
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
                         Text(String(format: "%.1fW", monitor.currentWattage ?? 0))
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                             .foregroundStyle(.secondary)
