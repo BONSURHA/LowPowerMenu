@@ -60,13 +60,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     @objc private func powerStateDidChange() {
-        updateUI()
+        DispatchQueue.main.async { [weak self] in
+            self?.updateUI()
+        }
     }
     
     @objc private func preferencesChanged() {
-        updateUI()
+        DispatchQueue.main.async { [weak self] in
+            self?.updateUI()
+        }
     }
     
+    @MainActor
     private func updateUI() {
         let isLowPower = PowerMonitor.shared.isLowPowerModeActive
         let isOnAC = PowerMonitor.shared.checkIfOnACPower()

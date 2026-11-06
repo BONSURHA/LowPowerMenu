@@ -240,7 +240,7 @@ public struct NativeLiquidStripView: View {
                 }) {
                     HStack(spacing: 4) {
                         Image(systemName: "gearshape")
-                        Text("Settings...")
+                        Text("Settings")
                         Text("⌘,")
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
                             .foregroundStyle(.tertiary)

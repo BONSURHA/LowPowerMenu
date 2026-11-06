@@ -88,7 +88,15 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
     }
     
     // MARK: - State Refresh
+    @MainActor
     public func refreshState() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshState()
+            }
+            return
+        }
+        
         // Read Darwin Low Power Mode
         isLowPowerModeActive = ProcessInfo.processInfo.isLowPowerModeEnabled
         
@@ -224,10 +232,11 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         let args = policy.pmsetArguments
         Task.detached {
             let process = Process()
+            process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
             process.arguments = [
                 "-c",
-                "sudo -n /usr/bin/pmset -b lowpowermode \(args.battery) -c lowpowermode \(args.adapter)"
+                "/usr/bin/sudo -n /usr/bin/pmset -b lowpowermode \(args.battery) -c lowpowermode \(args.adapter)"
             ]
             
             try? process.run()

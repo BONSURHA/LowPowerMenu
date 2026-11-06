@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 import LowPowerCore
 
-public final class StatusMenuController: NSObject, NSPopoverDelegate, @unchecked Sendable {
+@MainActor
+public final class StatusMenuController: NSObject, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var keyEventMonitor: Any?
@@ -148,22 +149,30 @@ public final class StatusMenuController: NSObject, NSPopoverDelegate, @unchecked
     
     @MainActor
     public func updateStatus(isLowPowerMode: Bool, isOnACPower: Bool = false) {
-        guard let item = statusItem, let button = item.button else { return }
-        
-        let hideOnAC = UserDefaults.standard.bool(forKey: "hideOnAC")
-        item.isVisible = !(hideOnAC && isOnACPower)
-        
-        let symbolName = isLowPowerMode ? "dial.low.fill" : "dial.high"
-        let description = isLowPowerMode ? "Low Power Mode On" : "Low Power Mode Off"
-        
-        let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description)?.withSymbolConfiguration(config) {
-            image.isTemplate = true
-            button.image = image
-        } else {
-            button.title = isLowPowerMode ? "LPM" : "OFF"
+        let updateBlock = { [weak self] in
+            guard let self = self, let item = self.statusItem, let button = item.button else { return }
+            
+            let hideOnAC = UserDefaults.standard.bool(forKey: "hideOnAC")
+            item.isVisible = !(hideOnAC && isOnACPower)
+            
+            let symbolName = isLowPowerMode ? "dial.low.fill" : "dial.high"
+            let description = isLowPowerMode ? "Low Power Mode On" : "Low Power Mode Off"
+            
+            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description)?.withSymbolConfiguration(config) {
+                image.isTemplate = true
+                button.image = image
+            } else {
+                button.title = isLowPowerMode ? "LPM" : "OFF"
+            }
+            
+            button.setAccessibilityValue(description)
         }
         
-        button.setAccessibilityValue(description)
+        if Thread.isMainThread {
+            updateBlock()
+        } else {
+            DispatchQueue.main.async(execute: updateBlock)
+        }
     }
 }
