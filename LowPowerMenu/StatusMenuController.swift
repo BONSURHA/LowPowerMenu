@@ -76,7 +76,10 @@ public final class StatusMenuController: NSObject, @unchecked Sendable {
     
     @MainActor
     public func updateStatus(isLowPowerMode: Bool, isOnACPower: Bool = false) {
-        guard let button = statusItem?.button else { return }
+        guard let item = statusItem, let button = item.button else { return }
+        
+        let hideOnAC = UserDefaults.standard.bool(forKey: "hideOnAC")
+        item.isVisible = !(hideOnAC && isOnACPower)
         
         let symbolName = isLowPowerMode ? "dial.low.fill" : "dial.high"
         let description = isLowPowerMode ? "Low Power Mode On" : "Low Power Mode Off"

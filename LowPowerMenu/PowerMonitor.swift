@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import IOKit.ps
 import AppKit
 import LowPowerCore
@@ -60,9 +61,9 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
             CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
         }
         
-        // NSProcessInfo & Workspace notifications
+        // ProcessInfo & Workspace notifications
         NotificationCenter.default.addObserver(
-            forName: NSProcessInfo.powerStateDidChangeNotification,
+            forName: .NSProcessInfoPowerStateDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
