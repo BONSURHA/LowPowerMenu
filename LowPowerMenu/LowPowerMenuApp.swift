@@ -8,7 +8,7 @@ struct LowPowerMenuApp: App {
     
     var body: some Scene {
         Settings {
-            EmptyView()
+            SettingsView()
         }
     }
 }
@@ -16,10 +16,18 @@ struct LowPowerMenuApp: App {
 // MARK: - App Delegate
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
+    public static private(set) var shared: AppDelegate?
+    
     private var statusMenuController: StatusMenuController!
     private var settingsWindow: NSWindow?
     
+    override init() {
+        super.init()
+        AppDelegate.shared = self
+    }
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppDelegate.shared = self
         // Initialize StatusMenuController
         statusMenuController = StatusMenuController()
         statusMenuController.setupStatusItem()
@@ -86,7 +94,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow == nil {
             let settingsView = SettingsView()
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 350, height: 320),
+                contentRect: NSRect(x: 0, y: 0, width: 380, height: 440),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false

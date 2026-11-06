@@ -5,6 +5,9 @@ struct SettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("hideOnAC") private var hideOnAC = false
     @AppStorage("enableGlobalShortcut") private var enableGlobalShortcut = false
+    @ObservedObject private var powerMonitor = PowerMonitor.shared
+    @State private var installError: String?
+    @State private var showingErrorAlert = false
     
     // Get version info
     private var appVersion: String {
@@ -91,12 +94,56 @@ struct SettingsView: View {
                             .padding(.top, 4)
                     }
                 }
+                
+                Section {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label("Privileged Helper", systemImage: "lock.shield")
+                            Text(powerMonitor.isSudoersConfigured ? "Installed & Active (Passwordless pmset)" : "Required to toggle Low Power Mode")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if powerMonitor.isSudoersConfigured {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Text("Installed")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Button("Install...") {
+                                do {
+                                    try powerMonitor.installSudoersRule()
+                                } catch {
+                                    installError = error.localizedDescription
+                                    showingErrorAlert = true
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                        }
+                    }
+                } header: {
+                    Text("System Permissions")
+                } footer: {
+                    Text("Low Power Mode switching uses macOS pmset, which requires administrator privileges via /private/etc/sudoers.d/lowpowermenu.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .formStyle(.grouped)
             .scrollDisabled(true) // Prevent scrolling if content fits
         }
-        .frame(width: 350, height: 320) // Slightly taller for the header
+        .frame(width: 380, height: 440)
+        .alert("Installation Error", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(installError ?? "Unknown error occurred")
+        }
         .onAppear {
+            powerMonitor.checkSudoersConfiguration()
             // Synchronize UI with actual service status just in case
             if #available(macOS 13.0, *) {
                 let status = SMAppService.mainApp.status

@@ -176,7 +176,13 @@ public struct NativeLiquidStripView: View {
                 .padding(.top, 2)
             
             HStack {
-                Button(action: { onOpenSettings?() }) {
+                Button(action: {
+                    if let onOpenSettings = onOpenSettings {
+                        onOpenSettings()
+                    } else {
+                        AppDelegate.shared?.openPreferencesWindow()
+                    }
+                }) {
                     Label("Settings...", systemImage: "gearshape")
                         .font(.system(size: 11))
                 }

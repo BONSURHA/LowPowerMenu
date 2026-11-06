@@ -30,7 +30,11 @@ public final class StatusMenuController: NSObject, @unchecked Sendable {
         let contentView = NativeLiquidStripView(
             onOpenSettings: { [weak self] in
                 self?.closePopover()
-                (NSApp.delegate as? AppDelegate)?.openPreferencesWindow()
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.openPreferencesWindow()
+                } else {
+                    (NSApp.delegate as? AppDelegate)?.openPreferencesWindow()
+                }
             },
             onQuit: {
                 NSApp.terminate(nil)
