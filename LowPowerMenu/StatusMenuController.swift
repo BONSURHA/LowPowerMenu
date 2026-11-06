@@ -154,8 +154,20 @@ public final class StatusMenuController: NSObject, NSPopoverDelegate {
             
             let hideOnAC = UserDefaults.standard.bool(forKey: "hideOnAC")
             let targetVisibility = !(hideOnAC && isOnACPower)
-            if item.isVisible != targetVisibility {
-                item.isVisible = targetVisibility
+            if targetVisibility {
+                if button.isHidden {
+                    button.isHidden = false
+                }
+                if item.length != NSStatusItem.variableLength {
+                    item.length = NSStatusItem.variableLength
+                }
+            } else {
+                if !button.isHidden {
+                    button.isHidden = true
+                }
+                if item.length != 0 {
+                    item.length = 0
+                }
             }
             
             let symbolName = isLowPowerMode ? "dial.low.fill" : "dial.high"
