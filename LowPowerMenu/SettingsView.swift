@@ -105,12 +105,23 @@ struct SettingsView: View {
                         }
                         Spacer()
                         if powerMonitor.isSudoersConfigured {
-                            HStack(spacing: 4) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                                Text("Installed")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                    Text("Installed & Active")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Button("Remove", role: .destructive) {
+                                    do {
+                                        try powerMonitor.removeSudoersRule()
+                                    } catch {
+                                        installError = error.localizedDescription
+                                        showingErrorAlert = true
+                                    }
+                                }
+                                .controlSize(.small)
                             }
                         } else {
                             Button("Install...") {
@@ -137,7 +148,7 @@ struct SettingsView: View {
             .scrollDisabled(true) // Prevent scrolling if content fits
         }
         .frame(width: 380, height: 440)
-        .alert("Installation Error", isPresented: $showingErrorAlert) {
+        .alert("Permissions Error", isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(installError ?? "Unknown error occurred")

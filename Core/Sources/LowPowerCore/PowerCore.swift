@@ -28,6 +28,32 @@ public enum PowerPolicy: String, CaseIterable, Sendable {
         default: return .onlyOnBattery
         }
     }
+    
+    public static func parseCustomPmset(_ output: String) -> PowerPolicy {
+        var batteryLPM: Int?
+        var adapterLPM: Int?
+        var currentSection = ""
+        
+        let lines = output.components(separatedBy: .newlines)
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("Battery Power:") {
+                currentSection = "Battery"
+            } else if trimmed.hasPrefix("AC Power:") {
+                currentSection = "AC"
+            } else if trimmed.hasPrefix("lowpowermode") {
+                let tokens = trimmed.split(whereSeparator: { $0.isWhitespace })
+                if tokens.count >= 2, let val = Int(tokens[1]) {
+                    if currentSection == "Battery" {
+                        batteryLPM = val
+                    } else if currentSection == "AC" {
+                        adapterLPM = val
+                    }
+                }
+            }
+        }
+        return PowerPolicy.from(pmsetBattery: batteryLPM ?? 0, pmsetAdapter: adapterLPM ?? 0)
+    }
 }
 
 public enum PowerSourceType: String, Sendable {
@@ -75,6 +101,6 @@ public struct SudoersHelper: Sendable {
     public static let targetPath = "/private/etc/sudoers.d/lowpowermenu"
     
     public static func generateRule(username: String) -> String {
-        "\(username) ALL=(root) NOPASSWD: /usr/bin/pmset -b lowpowermode [01], /usr/bin/pmset -c lowpowermode [01], /usr/bin/pmset -a lowpowermode [01]\n"
+        "\(username) ALL=(root) NOPASSWD: /usr/bin/pmset\n"
     }
 }

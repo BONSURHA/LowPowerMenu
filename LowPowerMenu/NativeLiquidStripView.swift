@@ -15,12 +15,22 @@ public struct NativeLiquidStripView: View {
     public var body: some View {
         VStack(spacing: 12) {
             // Header
-            HStack {
+            HStack(spacing: 6) {
                 Image(systemName: monitor.isLowPowerModeActive ? "dial.low.fill" : "dial.high")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(monitor.isLowPowerModeActive ? Color.orange : Color.secondary)
                 Text("Low Power Mode")
                     .font(.system(size: 13, weight: .bold))
+                
+                // Subtle global toggle shortcut badge
+                Text("⌘⌥P")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                
                 Spacer()
                 Button(action: {
                     monitor.toggleCurrentState()
@@ -41,10 +51,22 @@ public struct NativeLiquidStripView: View {
                 HStack(spacing: 8) {
                     // Power Source Pill
                     HStack(spacing: 5) {
-                        Image(systemName: monitor.currentPowerSource == .powerAdapter ? "powerplug.fill" : "battery.100")
-                            .font(.system(size: 11))
-                        Text(monitor.currentPowerSource == .powerAdapter ? "Power Adapter" : "Battery Power")
-                            .font(.system(size: 11, weight: .medium))
+                        if monitor.currentPowerSource == .powerAdapter {
+                            if let watts = monitor.adapterWatts {
+                                Text("🔌 Power Adapter (\(watts)W)")
+                                    .font(.system(size: 11, weight: .medium))
+                            } else {
+                                Image(systemName: "powerplug.fill")
+                                    .font(.system(size: 11))
+                                Text("Power Adapter")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                        } else {
+                            Image(systemName: "battery.100")
+                                .font(.system(size: 11))
+                            Text("Battery Power")
+                                .font(.system(size: 11, weight: .medium))
+                        }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -133,6 +155,39 @@ public struct NativeLiquidStripView: View {
                     .buttonStyle(.plain)
                     .help("Open Battery Health Settings")
                 }
+                
+                Divider()
+                    .padding(.vertical, 2)
+                
+                // 3-Column Micro-Stats Row
+                HStack(spacing: 0) {
+                    HStack(spacing: 4) {
+                        Text("🔄")
+                            .font(.system(size: 9))
+                        Text("\(monitor.cycleCount ?? 0) cycles")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    HStack(spacing: 4) {
+                        Text("❤️")
+                            .font(.system(size: 9))
+                        Text("\(monitor.batteryHealthPercent ?? 100)%")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    
+                    HStack(spacing: 4) {
+                        Text("⚡︎")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(String(format: "%.1fW", monitor.currentWattage ?? 0))
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             }
             .padding(10)
             .background(.ultraThinMaterial)
@@ -183,24 +238,29 @@ public struct NativeLiquidStripView: View {
                         AppDelegate.shared?.openPreferencesWindow()
                     }
                 }) {
-                    Label("Settings...", systemImage: "gearshape")
-                        .font(.system(size: 11))
+                    HStack(spacing: 4) {
+                        Image(systemName: "gearshape")
+                        Text("Settings...")
+                        Text("⌘,")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .font(.system(size: 11))
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(",", modifiers: .command)
                 
                 Spacer()
                 
-                Text("⌘⌥P")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                
-                Spacer()
-                
                 Button(action: { onQuit?() }) {
-                    Text("Quit")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text("Quit")
+                        Text("⌘Q")
+                            .font(.system(size: 9, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("q", modifiers: .command)
@@ -209,7 +269,7 @@ public struct NativeLiquidStripView: View {
             .padding(.bottom, 2)
         }
         .padding(14)
-        .frame(width: 290)
+        .frame(width: 300)
     }
     
     private var contextExplanationText: String {
@@ -232,27 +292,33 @@ public struct NativeLiquidStripView: View {
 
 private struct PolicyPill: View {
     let title: String
-    let key: KeyEquivalent
+    let key: Character
     let isSelected: Bool
     let action: () -> Void
     
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(size: 10, weight: isSelected ? .bold : .medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-                .background(isSelected ? Color.orange.opacity(0.3) : Color.white.opacity(0.06))
-                .foregroundStyle(isSelected ? Color.orange : Color.primary)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(isSelected ? Color.orange.opacity(0.5) : Color.clear, lineWidth: 1)
-                )
+            HStack(spacing: 3) {
+                Text(title)
+                    .font(.system(size: 10, weight: isSelected ? .bold : .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(String(key))
+                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isSelected ? Color.orange.opacity(0.9) : Color.secondary.opacity(0.6))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 2)
+            .background(isSelected ? Color.orange.opacity(0.3) : Color.white.opacity(0.06))
+            .foregroundStyle(isSelected ? Color.orange : Color.primary)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(isSelected ? Color.orange.opacity(0.5) : Color.clear, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(key, modifiers: [])
+        .keyboardShortcut(KeyEquivalent(key), modifiers: [])
     }
 }

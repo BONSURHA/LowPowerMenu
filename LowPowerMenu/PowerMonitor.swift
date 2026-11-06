@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import IOKit
 import IOKit.ps
 import AppKit
 import LowPowerCore
@@ -22,7 +23,14 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
     @Published public private(set) var isSudoersConfigured: Bool = false
     @Published public private(set) var isExecuting: Bool = false
     
+    // Hardware battery metrics
+    @Published public private(set) var cycleCount: Int? = nil
+    @Published public private(set) var batteryHealthPercent: Int? = nil
+    @Published public private(set) var currentWattage: Double? = nil
+    @Published public private(set) var adapterWatts: Int? = nil
+    
     // Backward-compatible properties
+    public var powerPolicy: PowerPolicy { currentPolicy }
     public var isLowPowerMode: Bool { isLowPowerModeActive }
     public var isLowPowerModeKnown: Bool { true }
     public func checkIfOnACPower() -> Bool { currentPowerSource == .powerAdapter }
@@ -85,37 +93,88 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         isLowPowerModeActive = ProcessInfo.processInfo.isLowPowerModeEnabled
         
         // Read Power Sources Info
-        guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] else {
+        if let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+           let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] {
+            for source in sources {
+                guard let description = IOPSGetPowerSourceDescription(snapshot, source)?.takeUnretainedValue() as? [String: Any] else {
+                    continue
+                }
+                
+                let currentState = description[kIOPSPowerSourceStateKey] as? String
+                let isAC = (currentState == kIOPSACPowerValue)
+                currentPowerSource = isAC ? .powerAdapter : .battery
+                
+                let currentCap = description[kIOPSCurrentCapacityKey] as? Int ?? 100
+                let isCharging = description[kIOPSIsChargingKey] as? Bool ?? false
+                let timeToEmpty = description[kIOPSTimeToEmptyKey] as? Int
+                let timeToFull = description[kIOPSTimeToFullChargeKey] as? Int
+                
+                // Detect Apple 80% Limit / Charging on Hold:
+                // When connected to AC, capacity >= 79%, not charging, or timeToFull is -1 while connected
+                let isLimitEngaged = isAC && currentCap >= 79 && currentCap < 100 && !isCharging
+                
+                batteryLimitStats = BatteryLimitStats(
+                    capacityPercent: currentCap,
+                    isCharging: isCharging,
+                    isACConnected: isAC,
+                    isLimitEngaged: isLimitEngaged,
+                    rawMinutesRemaining: isCharging ? timeToFull : timeToEmpty
+                )
+                break
+            }
+        }
+        
+        readHardwareBatteryDetails()
+    }
+    
+    private func readHardwareBatteryDetails() {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard service != 0 else { return }
+        defer { IOObjectRelease(service) }
+        
+        var props: Unmanaged<CFMutableDictionary>?
+        guard IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+              let dict = props?.takeRetainedValue() as? [String: Any] else {
             return
         }
         
-        for source in sources {
-            guard let description = IOPSGetPowerSourceDescription(snapshot, source)?.takeUnretainedValue() as? [String: Any] else {
-                continue
+        // Cycle Count
+        if let cycles = dict["CycleCount"] as? Int {
+            cycleCount = cycles
+        }
+        
+        // Battery Health Percent
+        if let batteryData = dict["BatteryData"] as? [String: Any] {
+            let designCap = (batteryData["DesignCapacity"] as? Int) ?? (batteryData["DesignCapacity"] as? Double).map(Int.init)
+            let fullCap = (batteryData["FullChargeCapacity"] as? Int) ?? (batteryData["AppleRawMaxCapacity"] as? Int)
+            if let design = designCap, let full = fullCap, design > 0 {
+                batteryHealthPercent = Int(round(Double(full) * 100.0 / Double(design)))
             }
-            
-            let currentState = description[kIOPSPowerSourceStateKey] as? String
-            let isAC = (currentState == kIOPSACPowerValue)
-            currentPowerSource = isAC ? .powerAdapter : .battery
-            
-            let currentCap = description[kIOPSCurrentCapacityKey] as? Int ?? 100
-            let isCharging = description[kIOPSIsChargingKey] as? Bool ?? false
-            let timeToEmpty = description[kIOPSTimeToEmptyKey] as? Int
-            let timeToFull = description[kIOPSTimeToFullChargeKey] as? Int
-            
-            // Detect Apple 80% Limit / Charging on Hold:
-            // When connected to AC, capacity >= 79%, not charging, or timeToFull is -1 while connected
-            let isLimitEngaged = isAC && currentCap >= 79 && currentCap < 100 && !isCharging
-            
-            batteryLimitStats = BatteryLimitStats(
-                capacityPercent: currentCap,
-                isCharging: isCharging,
-                isACConnected: isAC,
-                isLimitEngaged: isLimitEngaged,
-                rawMinutesRemaining: isCharging ? timeToFull : timeToEmpty
-            )
-            break
+        }
+        
+        // Current Wattage (Power Consumption)
+        if let telemetry = dict["PowerTelemetryData"] as? [String: Any],
+           let sysLoad = (telemetry["SystemLoad"] as? Double) ?? (telemetry["SystemLoad"] as? Int).map(Double.init),
+           sysLoad > 0 {
+            currentWattage = sysLoad / 1000.0
+        } else if let amperage = (dict["Amperage"] as? Double) ?? (dict["Amperage"] as? Int).map(Double.init),
+                  let voltage = (dict["Voltage"] as? Double) ?? (dict["Voltage"] as? Int).map(Double.init) {
+            currentWattage = abs(amperage * voltage / 1_000_000.0)
+        }
+        
+        // Adapter Watts
+        let isConnected = (dict["ExternalConnected"] as? Bool) == true || (dict["ExternalConnected"] as? Int) == 1 || currentPowerSource == .powerAdapter
+        if isConnected {
+            if let powerDist = dict["PowerDistribution"] as? [String: Any],
+               let override = (powerDist["IPDWattageOverride"] as? Int) ?? (powerDist["IPDWattageOverride"] as? Double).map(Int.init),
+               override > 0 {
+                adapterWatts = override / 1000
+            } else if let adapterDetails = dict["AdapterDetails"] as? [String: Any],
+                      let watts = adapterDetails["Watts"] as? Int, watts > 0 {
+                adapterWatts = watts
+            }
+        } else {
+            adapterWatts = nil
         }
     }
     
@@ -168,17 +227,43 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
             process.arguments = [
                 "-c",
-                "sudo -n /usr/bin/pmset -b lowpowermode \(args.battery) -c lowpowermode \(args.adapter) 2>/dev/null || /usr/bin/pmset -b lowpowermode \(args.battery) -c lowpowermode \(args.adapter) 2>/dev/null"
+                "sudo -n /usr/bin/pmset -b lowpowermode \(args.battery) -c lowpowermode \(args.adapter)"
             ]
             
             try? process.run()
             process.waitUntilExit()
+            let exitCode = process.terminationStatus
+            
+            var revertedPolicy: PowerPolicy? = nil
+            if exitCode != 0 {
+                NSLog("LowPowerMenu: Failed to apply power policy (%@): exit code %d. Reverting to system policy.", policy.rawValue, exitCode)
+                revertedPolicy = PowerMonitor.readActualPolicyFromPmset()
+            }
             
             await MainActor.run {
+                if let reverted = revertedPolicy {
+                    self.currentPolicy = reverted
+                    UserDefaults.standard.set(reverted.rawValue, forKey: self.policyDefaultsKey)
+                }
                 self.isExecuting = false
                 self.refreshState()
             }
         }
+    }
+    
+    nonisolated public static func readActualPolicyFromPmset() -> PowerPolicy {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["-g", "custom"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try? process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let output = String(data: data, encoding: .utf8) else {
+            return .onlyOnBattery
+        }
+        return PowerPolicy.parseCustomPmset(output)
     }
     
     // MARK: - Sudoers Helper
@@ -200,6 +285,18 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
             appleScript.executeAndReturnError(&error)
             if let error = error {
                 throw NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Sudoers install failed"])
+            }
+        }
+        checkSudoersConfiguration()
+    }
+    
+    public func removeSudoersRule() throws {
+        let script = "do shell script \"rm -f \(SudoersHelper.targetPath)\" with administrator privileges"
+        var error: NSDictionary?
+        if let appleScript = NSAppleScript(source: script) {
+            appleScript.executeAndReturnError(&error)
+            if let error = error {
+                throw NSError(domain: "LowPowerMenu", code: 2, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Failed to remove sudoers rule"])
             }
         }
         checkSudoersConfiguration()

@@ -24,6 +24,44 @@ final class PowerCoreTests: XCTestCase {
         XCTAssertEqual(PowerPolicy.from(pmsetBattery: 99, pmsetAdapter: 99), .onlyOnBattery)
     }
     
+    func testParseCustomPmset() {
+        let sampleOutput = """
+        Battery Power:
+         Sleep On Power Button 1
+         lowpowermode         1
+         displaysleep         2
+        AC Power:
+         Sleep On Power Button 1
+         lowpowermode         0
+         displaysleep         10
+        """
+        XCTAssertEqual(PowerPolicy.parseCustomPmset(sampleOutput), .onlyOnBattery)
+        
+        let alwaysOutput = """
+        Battery Power:
+         lowpowermode         1
+        AC Power:
+         lowpowermode         1
+        """
+        XCTAssertEqual(PowerPolicy.parseCustomPmset(alwaysOutput), .always)
+        
+        let neverOutput = """
+        Battery Power:
+         lowpowermode         0
+        AC Power:
+         lowpowermode         0
+        """
+        XCTAssertEqual(PowerPolicy.parseCustomPmset(neverOutput), .never)
+        
+        let acOnlyOutput = """
+        Battery Power:
+         lowpowermode         0
+        AC Power:
+         lowpowermode         1
+        """
+        XCTAssertEqual(PowerPolicy.parseCustomPmset(acOnlyOutput), .onlyOnPowerAdapter)
+    }
+    
     func testBatteryLimitStats() {
         let holdStats = BatteryLimitStats(
             capacityPercent: 80,
@@ -55,9 +93,6 @@ final class PowerCoreTests: XCTestCase {
     
     func testSudoersHelperRule() {
         let rule = SudoersHelper.generateRule(username: "nicolo")
-        XCTAssertTrue(rule.contains("nicolo ALL=(root) NOPASSWD:"))
-        XCTAssertTrue(rule.contains("/usr/bin/pmset -b lowpowermode [01]"))
-        XCTAssertTrue(rule.contains("/usr/bin/pmset -c lowpowermode [01]"))
-        XCTAssertTrue(rule.hasSuffix("\n"))
+        XCTAssertEqual(rule, "nicolo ALL=(root) NOPASSWD: /usr/bin/pmset\n")
     }
 }

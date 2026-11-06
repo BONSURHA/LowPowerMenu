@@ -2,9 +2,10 @@ import AppKit
 import SwiftUI
 import LowPowerCore
 
-public final class StatusMenuController: NSObject, @unchecked Sendable {
+public final class StatusMenuController: NSObject, NSPopoverDelegate, @unchecked Sendable {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
+    private var keyEventMonitor: Any?
     
     @MainActor
     public func setupStatusItem() {
@@ -26,6 +27,7 @@ public final class StatusMenuController: NSObject, @unchecked Sendable {
         popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
+        popover.delegate = self
         
         let contentView = NativeLiquidStripView(
             onOpenSettings: { [weak self] in
@@ -68,6 +70,8 @@ public final class StatusMenuController: NSObject, @unchecked Sendable {
             PowerMonitor.shared.refreshState()
             popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
+            NSApp.activate(ignoringOtherApps: true)
+            installKeyEventMonitor()
         }
     }
     
@@ -76,6 +80,70 @@ public final class StatusMenuController: NSObject, @unchecked Sendable {
         if popover.isShown {
             popover.performClose(nil)
         }
+        removeKeyEventMonitor()
+    }
+    
+    // MARK: - Key Event Monitoring
+    @MainActor
+    private func installKeyEventMonitor() {
+        guard keyEventMonitor == nil else { return }
+        keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let chars = event.charactersIgnoringModifiers
+            
+            // Cmd+,: Open settings
+            if flags.contains(.command) && chars == "," {
+                self.closePopover()
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.openPreferencesWindow()
+                } else {
+                    (NSApp.delegate as? AppDelegate)?.openPreferencesWindow()
+                }
+                return nil
+            }
+            
+            // Cmd+Q: Quit
+            if flags.contains(.command) && chars == "q" {
+                self.closePopover()
+                NSApp.terminate(nil)
+                return nil
+            }
+            
+            // Esc: Close popover
+            if flags.isEmpty && event.keyCode == 53 {
+                self.closePopover()
+                return nil
+            }
+            
+            // Number keys 1-4: Switch policy
+            if flags.isEmpty, let ch = chars, ch >= "1" && ch <= "4" {
+                switch ch {
+                case "1": PowerMonitor.shared.setPolicy(.never)
+                case "2": PowerMonitor.shared.setPolicy(.always)
+                case "3": PowerMonitor.shared.setPolicy(.onlyOnBattery)
+                case "4": PowerMonitor.shared.setPolicy(.onlyOnPowerAdapter)
+                default: break
+                }
+                return nil
+            }
+            
+            return event
+        }
+    }
+    
+    @MainActor
+    private func removeKeyEventMonitor() {
+        if let monitor = keyEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyEventMonitor = nil
+        }
+    }
+    
+    // MARK: - NSPopoverDelegate
+    @MainActor
+    public func popoverDidClose(_ notification: Notification) {
+        removeKeyEventMonitor()
     }
     
     @MainActor
