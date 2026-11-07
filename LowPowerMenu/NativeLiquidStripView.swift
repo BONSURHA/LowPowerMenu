@@ -4,6 +4,8 @@ import LowPowerCore
 
 public struct NativeLiquidStripView: View {
     @ObservedObject private var monitor = PowerMonitor.shared
+    @AppStorage("enableGlobalShortcut") private var enableGlobalShortcut = false
+    @AppStorage("globalShortcutDisplay") private var globalShortcutDisplay = GlobalShortcutManager.defaultDisplay
     public var onOpenSettings: (() -> Void)?
     public var onQuit: (() -> Void)?
     
@@ -23,13 +25,20 @@ public struct NativeLiquidStripView: View {
                     .font(.system(size: 13, weight: .bold))
                 
                 // Subtle global toggle shortcut badge
-                Text("⌘⌥P")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                if enableGlobalShortcut {
+                    Text(globalShortcutDisplay)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(monitor.isToggleAvailable ? .secondary : .quaternary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(Color.white.opacity(monitor.isToggleAvailable ? 0.14 : 0.04))
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(Color.white.opacity(monitor.isToggleAvailable ? 0.18 : 0.05), lineWidth: 0.5)
+                        )
+                        .opacity(monitor.isToggleAvailable ? 1.0 : 0.4)
+                }
                 
                 Spacer()
                 Button(action: {
@@ -44,6 +53,8 @@ public struct NativeLiquidStripView: View {
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(!monitor.isToggleAvailable)
+                .opacity(monitor.isToggleAvailable ? 1.0 : 0.5)
             }
             
             // Unified Power & Battery Card
@@ -122,6 +133,7 @@ public struct NativeLiquidStripView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Open Battery Health Settings")
                     .help("Open Battery Health Settings")
                 }
                 
@@ -174,7 +186,7 @@ public struct NativeLiquidStripView: View {
             
             // Apple 4-Policy Selector Card
             VStack(alignment: .leading, spacing: 8) {
-                Text("POLICY (AUTO-SWITCHING)")
+                Text("LOW POWER POLICY")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.secondary)
                 
@@ -185,10 +197,10 @@ public struct NativeLiquidStripView: View {
                     PolicyPill(title: "Always", key: "2", isSelected: monitor.currentPolicy == .always) {
                         monitor.setPolicy(.always)
                     }
-                    PolicyPill(title: "On Battery", key: "3", isSelected: monitor.currentPolicy == .onlyOnBattery) {
+                    PolicyPill(title: "Only on Battery", key: "3", isSelected: monitor.currentPolicy == .onlyOnBattery) {
                         monitor.setPolicy(.onlyOnBattery)
                     }
-                    PolicyPill(title: "On AC", key: "4", isSelected: monitor.currentPolicy == .onlyOnPowerAdapter) {
+                    PolicyPill(title: "Only on AC", key: "4", isSelected: monitor.currentPolicy == .onlyOnPowerAdapter) {
                         monitor.setPolicy(.onlyOnPowerAdapter)
                     }
                 }
@@ -249,10 +261,9 @@ public struct NativeLiquidStripView: View {
                         AppDelegate.shared?.openPreferencesWindow()
                     }
                 }) {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 3) {
                         Image(systemName: "gearshape")
-                        Text("Settings")
-                        Text("⌘ ,")
+                        Text("⌘,")
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
@@ -260,13 +271,15 @@ public struct NativeLiquidStripView: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(",", modifiers: .command)
+                .accessibilityLabel("Settings")
+                .help("Settings (⌘,)")
                 
                 Spacer()
                 
                 Button(action: { onQuit?() }) {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 3) {
                         Text("Quit")
-                        Text("⌘ Q")
+                        Text("⌘Q")
                             .font(.system(size: 9, weight: .medium, design: .monospaced))
                             .foregroundStyle(.tertiary)
                     }
@@ -280,7 +293,7 @@ public struct NativeLiquidStripView: View {
             .padding(.bottom, 2)
         }
         .padding(14)
-        .frame(width: 300)
+        .frame(width: 330)
     }
     
     private var formattedWattage: String {
@@ -323,7 +336,12 @@ private struct PolicyPill: View {
     let title: String
     let key: Character
     let isSelected: Bool
+    var isExpanded: Bool? = nil
     let action: () -> Void
+    
+    private var expands: Bool {
+        isExpanded ?? (title.count > 6)
+    }
     
     var body: some View {
         Button(action: action) {
@@ -331,14 +349,15 @@ private struct PolicyPill: View {
                 Text(title)
                     .font(.system(size: 10, weight: isSelected ? .bold : .medium))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.8)
                 Text(String(key))
                     .font(.system(size: 8, weight: .semibold, design: .monospaced))
                     .foregroundStyle(isSelected ? Color.primary.opacity(0.9) : Color.secondary.opacity(0.6))
             }
-            .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
-            .padding(.horizontal, 2)
+            .padding(.horizontal, expands ? 5 : 8)
+            .frame(maxWidth: expands ? .infinity : nil)
+            .fixedSize(horizontal: !expands, vertical: false)
             .background(isSelected ? Color.white.opacity(0.18) : Color.white.opacity(0.06))
             .foregroundStyle(isSelected ? Color.primary : Color.secondary)
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))

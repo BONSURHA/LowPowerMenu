@@ -6,7 +6,22 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 echo "==> Building LowPowerMenu (Release configuration)..."
 cd "${ROOT_DIR}"
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -scheme LowPowerMenu -configuration Release clean build
+
+if command -v xcodebuild &>/dev/null && xcodebuild -version &>/dev/null; then
+    # xcodebuild works directly
+    true
+elif [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
+    export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+    if ! command -v xcodebuild &>/dev/null || ! xcodebuild -version &>/dev/null; then
+        echo "Error: Found /Applications/Xcode.app/Contents/Developer, but xcodebuild is still not operational." >&2
+        exit 1
+    fi
+else
+    echo "Error: xcodebuild is not available and /Applications/Xcode.app/Contents/Developer was not found. Please install Xcode or configure xcode-select." >&2
+    exit 1
+fi
+
+xcodebuild -scheme LowPowerMenu -configuration Release clean build
 
 # Locate built application
 BUILT_APP=$(find ~/Library/Developer/Xcode/DerivedData -name "LowPowerMenu.app" -path "*/Release/*" -type d 2>/dev/null | head -n 1)

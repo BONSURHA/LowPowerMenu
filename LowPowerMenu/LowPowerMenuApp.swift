@@ -97,8 +97,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Register if enabled in settings
         let enabled = UserDefaults.standard.bool(forKey: "enableGlobalShortcut")
         if enabled {
-            // Default: Cmd+Opt+P (P=0x23, Mods=2304)
-            GlobalShortcutManager.shared.register(keyCode: 0x23, modifiers: 2304)
+            GlobalShortcutManager.shared.registerSavedShortcut()
         }
     }
     
@@ -110,7 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow == nil {
             let settingsView = SettingsView()
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 380, height: 440),
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 260),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false

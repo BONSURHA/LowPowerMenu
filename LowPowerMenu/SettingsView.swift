@@ -1,150 +1,41 @@
 import SwiftUI
+import AppKit
 import ServiceManagement
 
 struct SettingsView: View {
     @AppStorage("launchAtLogin") private var launchAtLogin = false
     @AppStorage("hideOnAC") private var hideOnAC = false
     @AppStorage("enableGlobalShortcut") private var enableGlobalShortcut = false
+    @AppStorage("globalShortcutDisplay") private var globalShortcutDisplay = GlobalShortcutManager.defaultDisplay
     @ObservedObject private var powerMonitor = PowerMonitor.shared
+    
+    @State private var isRecordingShortcut = false
+    @State private var keyMonitor: Any?
     @State private var installError: String?
     @State private var showingErrorAlert = false
     
-    // Get version info
     private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.4.0"
     }
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Header Info
-            VStack(spacing: 8) {
-                Image(systemName: "dial.high")
-                    .font(.system(size: 40, weight: .medium))
-                    .foregroundStyle(.secondary)
-                
-                VStack(spacing: 2) {
-                    Text("Low Power Menu")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                    
-                    Text("Version \(appVersion)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+        TabView {
+            generalTab
+                .tabItem {
+                    Label("General", systemImage: "gearshape")
                 }
-            }
-            .padding(.vertical, 20)
-            .frame(maxWidth: .infinity)
             
-            Divider()
+            helperTab
+                .tabItem {
+                    Label("Helper", systemImage: "lock.shield")
+                }
             
-            // Settings Form
-            Form {
-                Section {
-                    Toggle(isOn: $launchAtLogin) {
-                        Label("Launch at Login", systemImage: "desktopcomputer")
-                    }
-                    .toggleStyle(.switch) // Explicit switch style
-                    .onChange(of: launchAtLogin) { oldValue, newValue in
-                        updateLaunchAtLogin(newValue)
-                    }
-                    
-                    Toggle(isOn: $hideOnAC) {
-                        Label("Hide when on Power Adapter/AC", systemImage: "eye.slash")
-                    }
-                    .toggleStyle(.switch) // Explicit switch style
-                    .onChange(of: hideOnAC) { oldValue, newValue in
-                        print("Settings: Hide on AC changed to \(newValue)")
-                        // Notify AppDelegate to update icon visibility
-                        NotificationCenter.default.post(name: Notification.Name("SettingsChanged"), object: nil)
-                    }
-                    
-                    Toggle(isOn: $enableGlobalShortcut) {
-                        HStack {
-                            Label("Shortcut", systemImage: "keyboard")
-                            Spacer()
-                            if enableGlobalShortcut {
-                                Text("⌘⌥P")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .toggleStyle(.switch)
-                    .onChange(of: enableGlobalShortcut) { oldValue, newValue in
-                        if newValue {
-                            // Default Cmd+Opt+P
-                            // P = 0x23 (35), cmd = 256, opt = 2048
-                            GlobalShortcutManager.shared.register(keyCode: 0x23, modifiers: 2304) // 256 + 2048
-                        } else {
-                            GlobalShortcutManager.shared.unregister()
-                        }
-                    }
-                } footer: {
-                    if hideOnAC {
-                        Text("The menu icon will be hidden when plugged in. It will reappear automatically when unplugged.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 4)
-                    }
+            aboutTab
+                .tabItem {
+                    Label("About", systemImage: "info.circle")
                 }
-                
-                Section {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Label("Privileged Helper", systemImage: "lock.shield")
-                            Text(powerMonitor.isSudoersConfigured ? "Installed & Active (Passwordless pmset)" : "Required to toggle Low Power Mode")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if powerMonitor.isSudoersConfigured {
-                            HStack(spacing: 8) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                    Text("Installed & Active")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Button("Remove", role: .destructive) {
-                                    Task {
-                                        do {
-                                            try await powerMonitor.removeSudoersRule()
-                                        } catch {
-                                            installError = error.localizedDescription
-                                            showingErrorAlert = true
-                                        }
-                                    }
-                                }
-                                .controlSize(.small)
-                            }
-                        } else {
-                            Button("Install...") {
-                                Task {
-                                    do {
-                                        try await powerMonitor.installSudoersRule()
-                                    } catch {
-                                        installError = error.localizedDescription
-                                        showingErrorAlert = true
-                                    }
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.orange)
-                            .controlSize(.small)
-                        }
-                    }
-                } header: {
-                    Text("System Permissions")
-                } footer: {
-                    Text("Low Power Mode switching uses macOS pmset, which requires administrator privileges via /private/etc/sudoers.d/lowpowermenu.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .formStyle(.grouped)
-            .scrollDisabled(true) // Prevent scrolling if content fits
         }
-        .frame(width: 380, height: 440)
+        .frame(width: 400, height: 240)
         .alert("Permissions Error", isPresented: $showingErrorAlert) {
             Button("OK", role: .cancel) { }
         } message: {
@@ -152,33 +43,223 @@ struct SettingsView: View {
         }
         .onAppear {
             powerMonitor.checkSudoersConfiguration()
-            // Synchronize UI with actual service status just in case
             if #available(macOS 13.0, *) {
-                let status = SMAppService.mainApp.status
-                print("Settings: Current SMAppService status: \(status.rawValue)")
-                launchAtLogin = status == .enabled
+                launchAtLogin = (SMAppService.mainApp.status == .enabled)
             }
+        }
+        .onDisappear {
+            stopRecordingShortcut()
         }
     }
     
+    // MARK: - General Tab
+    private var generalTab: some View {
+        Form {
+            Section {
+                Toggle(isOn: $launchAtLogin) {
+                    Label("Launch at Login", systemImage: "desktopcomputer")
+                }
+                .toggleStyle(.switch)
+                .onChange(of: launchAtLogin) { _, newValue in
+                    updateLaunchAtLogin(newValue)
+                }
+                
+                Toggle(isOn: $hideOnAC) {
+                    Label("Hide on AC Power", systemImage: "eye.slash")
+                }
+                .toggleStyle(.switch)
+                .onChange(of: hideOnAC) { _, _ in
+                    NotificationCenter.default.post(name: Notification.Name("SettingsChanged"), object: nil)
+                }
+            }
+            
+            Section {
+                HStack {
+                    Toggle(isOn: $enableGlobalShortcut) {
+                        Label("Global Shortcut", systemImage: "keyboard")
+                    }
+                    .toggleStyle(.switch)
+                    .onChange(of: enableGlobalShortcut) { _, newValue in
+                        if newValue {
+                            GlobalShortcutManager.shared.registerSavedShortcut()
+                        } else {
+                            stopRecordingShortcut()
+                            GlobalShortcutManager.shared.unregister()
+                        }
+                    }
+                    
+                    if enableGlobalShortcut {
+                        Spacer()
+                        Button(action: {
+                            if isRecordingShortcut {
+                                stopRecordingShortcut()
+                            } else {
+                                startRecordingShortcut()
+                            }
+                        }) {
+                            Text(isRecordingShortcut ? "Press keys…" : globalShortcutDisplay)
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(isRecordingShortcut ? .orange : .primary)
+                        .controlSize(.small)
+                        .help("Click to record a new shortcut (Esc to cancel)")
+                        
+                        if globalShortcutDisplay != GlobalShortcutManager.defaultDisplay {
+                            Button(action: {
+                                stopRecordingShortcut()
+                                GlobalShortcutManager.shared.resetToDefault()
+                            }) {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 10))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Reset shortcut to default")
+                            .help("Reset to default (\(GlobalShortcutManager.defaultDisplay))")
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+    }
+    
+    // MARK: - Helper Tab
+    private var helperTab: some View {
+        Form {
+            Section {
+                HStack(spacing: 10) {
+                    Image(systemName: powerMonitor.isSudoersConfigured ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(powerMonitor.isSudoersConfigured ? Color.green : Color.orange)
+                    
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Privileged Helper")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(powerMonitor.isSudoersConfigured ? "Installed & Active (Passwordless pmset)" : "Required to switch Low Power Mode policies")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    if powerMonitor.isSudoersConfigured {
+                        Button("Remove", role: .destructive) {
+                            Task {
+                                do {
+                                    try await powerMonitor.removeSudoersRule()
+                                } catch {
+                                    installError = error.localizedDescription
+                                    showingErrorAlert = true
+                                }
+                            }
+                        }
+                        .controlSize(.small)
+                    } else {
+                        Button("Install…") {
+                            Task {
+                                do {
+                                    try await powerMonitor.installSudoersRule()
+                                } catch {
+                                    installError = error.localizedDescription
+                                    showingErrorAlert = true
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                        .controlSize(.small)
+                    }
+                }
+            } footer: {
+                Text("Installs a scoped sudoers rule at /private/etc/sudoers.d/lowpowermenu allowing passwordless /usr/bin/pmset execution.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+    }
+    
+    // MARK: - About Tab
+    private var aboutTab: some View {
+        VStack(spacing: 10) {
+            Spacer()
+            Image(systemName: "dial.high")
+                .font(.system(size: 42, weight: .medium))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            
+            VStack(spacing: 3) {
+                Text("Low Power Menu")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                
+                Text("Version \(appVersion)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            
+            Text("Lightweight native macOS Low Power Mode & Battery telemetry controller.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // MARK: - Shortcut Recording
+    private func startRecordingShortcut() {
+        isRecordingShortcut = true
+        GlobalShortcutManager.shared.setPaused(true)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Esc (53) cancels recording
+            if event.keyCode == 53 {
+                stopRecordingShortcut()
+                return nil
+            }
+            if let recorded = GlobalShortcutManager.recordShortcut(from: event) {
+                GlobalShortcutManager.shared.saveAndRegister(
+                    keyCode: recorded.keyCode,
+                    modifiers: recorded.modifiers,
+                    display: recorded.display
+                )
+                stopRecordingShortcut()
+                return nil
+            }
+            return event
+        }
+    }
+    
+    private func stopRecordingShortcut() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
+        if isRecordingShortcut {
+            isRecordingShortcut = false
+            GlobalShortcutManager.shared.setPaused(false)
+        }
+    }
+    
+    // MARK: - Launch at Login
     private func updateLaunchAtLogin(_ enabled: Bool) {
         if #available(macOS 13.0, *) {
             do {
                 if enabled {
-                    print("Settings: Attempting to register launch at login")
                     try SMAppService.mainApp.register()
-                    print("Settings: Successfully registered launch at login")
                 } else {
-                    print("Settings: Attempting to unregister launch at login")
                     try SMAppService.mainApp.unregister()
-                    print("Settings: Successfully unregistered launch at login")
                 }
             } catch {
-                print("Failed to update launch at login service: \(error)")
-                // Revert the toggle if operation failed
-                launchAtLogin = SMAppService.mainApp.status == .enabled
+                launchAtLogin = (SMAppService.mainApp.status == .enabled)
             }
         }
     }
 }
-

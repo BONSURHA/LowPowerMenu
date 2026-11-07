@@ -38,8 +38,27 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
     public var isLowPowerModeKnown: Bool { true }
     public func checkIfOnACPower() -> Bool { currentPowerSource == .powerAdapter }
     
+    public var effectivePolicy: PowerPolicy {
+        currentPolicy == .never ? lastActivePolicy : currentPolicy
+    }
+    
+    public var isToggleAvailable: Bool {
+        switch effectivePolicy {
+        case .always, .never:
+            return true
+        case .onlyOnBattery:
+            return currentPowerSource == .battery
+        case .onlyOnPowerAdapter:
+            return currentPowerSource == .powerAdapter
+        }
+    }
+    
     private var runLoopSource: CFRunLoopSource?
+    private var notifyPort: IONotificationPortRef?
+    private var batteryInterestNotification: io_object_t = 0
     private let policyDefaultsKey = "LowPowerMenu_ActivePolicy"
+    private let lastActivePolicyDefaultsKey = "LowPowerMenu_LastActivePolicy"
+    @Published public private(set) var lastActivePolicy: PowerPolicy = .onlyOnBattery
     
     private override init() {
         super.init()
@@ -50,8 +69,14 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
     }
     
     deinit {
+        if batteryInterestNotification != 0 {
+            IOObjectRelease(batteryInterestNotification)
+        }
+        if let port = notifyPort {
+            IONotificationPortDestroy(port)
+        }
         if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .defaultMode)
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
         }
         NotificationCenter.default.removeObserver(self)
     }
@@ -69,7 +94,32 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         }, context).takeRetainedValue()
         
         if let source = runLoopSource {
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
+            CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        }
+        
+        // IOKit Kernel Interest Notification (Battery / Charge Limit changes)
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        if service != 0 {
+            defer { IOObjectRelease(service) }
+            if let port = IONotificationPortCreate(kIOMainPortDefault) {
+                self.notifyPort = port
+                IONotificationPortSetDispatchQueue(port, DispatchQueue.main)
+                let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+                IOServiceAddInterestNotification(
+                    port,
+                    service,
+                    kIOGeneralInterest,
+                    { refCon, _, _, _ in
+                        guard let refCon = refCon else { return }
+                        let monitor = Unmanaged<PowerMonitor>.fromOpaque(refCon).takeUnretainedValue()
+                        Task { @MainActor in
+                            monitor.refreshState()
+                        }
+                    },
+                    selfPtr,
+                    &batteryInterestNotification
+                )
+            }
         }
         
         // ProcessInfo & Workspace notifications
@@ -125,8 +175,9 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
                 let timeToFull = description[kIOPSTimeToFullChargeKey] as? Int
                 
                 // Detect Apple 80% Limit / Charging on Hold:
-                // When connected to AC, capacity >= 79%, not charging, or timeToFull is -1 while connected
-                let isLimitEngaged = isAC && currentCap >= 79 && currentCap < 100 && !isCharging
+                let obcEngaged = (description["Optimized Battery Charging Engaged"] as? Bool == true) ||
+                                 (description["Optimized Battery Charging Engaged"] as? Int == 1)
+                let isLimitEngaged = isAC && !isCharging && (obcEngaged || (currentCap >= 79 && currentCap < 100))
                 
                 batteryLimitStats = BatteryLimitStats(
                     capacityPercent: currentCap,
@@ -140,6 +191,7 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         }
         
         readHardwareBatteryDetails()
+        syncPolicyFromSystem()
     }
     
     private func readHardwareBatteryDetails() {
@@ -203,9 +255,48 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         } else {
             currentPolicy = .onlyOnBattery
         }
+        
+        if let savedLast = UserDefaults.standard.string(forKey: lastActivePolicyDefaultsKey),
+           let policy = PowerPolicy(rawValue: savedLast),
+           policy != .never {
+            lastActivePolicy = policy
+        } else {
+            lastActivePolicy = (currentPolicy != .never) ? currentPolicy : .onlyOnBattery
+        }
+    }
+    
+    private func recordLastActivePolicyIfNeeded(_ policy: PowerPolicy) {
+        guard policy != .never else { return }
+        lastActivePolicy = policy
+        UserDefaults.standard.set(policy.rawValue, forKey: lastActivePolicyDefaultsKey)
+    }
+    
+    private func syncPolicyFromSystem() {
+        guard !isExecuting else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["-g", "custom"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.qualityOfService = .utility
+        process.terminationHandler = { [weak self] _ in
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else { return }
+            let actualPolicy = PowerPolicy.parseCustomPmset(output)
+            Task { @MainActor [weak self] in
+                guard let self = self, !self.isExecuting else { return }
+                if self.currentPolicy != actualPolicy {
+                    self.recordLastActivePolicyIfNeeded(actualPolicy)
+                    self.currentPolicy = actualPolicy
+                    UserDefaults.standard.set(actualPolicy.rawValue, forKey: self.policyDefaultsKey)
+                }
+            }
+        }
+        try? process.run()
     }
     
     public func setPolicy(_ policy: PowerPolicy) {
+        recordLastActivePolicyIfNeeded(policy)
         currentPolicy = policy
         UserDefaults.standard.set(policy.rawValue, forKey: policyDefaultsKey)
         applyPolicy(policy)
@@ -222,10 +313,12 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
     }
     
     public func toggleCurrentState() {
-        if isLowPowerModeActive {
+        guard isToggleAvailable else { return }
+        if currentPolicy != .never {
+            recordLastActivePolicyIfNeeded(currentPolicy)
             setPolicy(.never)
         } else {
-            setPolicy(.onlyOnBattery)
+            setPolicy(lastActivePolicy)
         }
     }
     
@@ -239,35 +332,37 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         isExecuting = true
         
         let args = policy.pmsetArguments
-        Task.detached {
-            let process = Process()
-            process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
-            process.executableURL = URL(fileURLWithPath: "/bin/sh")
-            process.arguments = [
-                "-c",
-                "/usr/bin/sudo -n /usr/bin/pmset -b lowpowermode \(args.battery) -c lowpowermode \(args.adapter)"
-            ]
-            
-            try? process.run()
-            process.waitUntilExit()
-            let exitCode = process.terminationStatus
-            
+        let process = Process()
+        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "/usr/bin/sudo -n /usr/bin/pmset -b lowpowermode \(args.battery) -c lowpowermode \(args.adapter)"
+        ]
+        process.qualityOfService = .userInitiated
+        process.terminationHandler = { [weak self] proc in
             let revertedPolicy: PowerPolicy?
-            if exitCode != 0 {
-                NSLog("LowPowerMenu: Failed to apply power policy (%@): exit code %d. Reverting to system policy.", policy.rawValue, exitCode)
+            if proc.terminationStatus != 0 {
+                NSLog("LowPowerMenu: Failed to apply power policy (%@): exit code %d. Reverting to system policy.", policy.rawValue, proc.terminationStatus)
                 revertedPolicy = PowerMonitor.readActualPolicyFromPmset()
             } else {
                 revertedPolicy = nil
             }
-            
-            await MainActor.run {
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
                 if let reverted = revertedPolicy {
+                    self.recordLastActivePolicyIfNeeded(reverted)
                     self.currentPolicy = reverted
                     UserDefaults.standard.set(reverted.rawValue, forKey: self.policyDefaultsKey)
                 }
                 self.isExecuting = false
                 self.refreshState()
             }
+        }
+        do {
+            try process.run()
+        } catch {
+            isExecuting = false
         }
     }
     
@@ -296,54 +391,49 @@ public final class PowerMonitor: NSObject, ObservableObject, @unchecked Sendable
         return exists
     }
     
+    private nonisolated func runPrivilegedShellCommand(_ command: String) async throws {
+        let script = "do shell script \"\(command)\" with administrator privileges"
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", script]
+            let errPipe = Pipe()
+            process.standardError = errPipe
+            process.qualityOfService = .default
+            process.terminationHandler = { proc in
+                if proc.terminationStatus == 0 {
+                    continuation.resume()
+                } else {
+                    let data = errPipe.fileHandleForReading.readDataToEndOfFile()
+                    let msg = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(throwing: NSError(
+                        domain: "LowPowerMenu",
+                        code: Int(proc.terminationStatus),
+                        userInfo: [NSLocalizedDescriptionKey: (msg?.isEmpty == false) ? msg! : "Operation cancelled or failed"]
+                    ))
+                }
+            }
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+    
     public func installSudoersRule() async throws {
         let username = NSUserName()
         let rule = SudoersHelper.generateRule(username: username)
         let tempPath = "/tmp/lowpowermenu_sudoers"
         try rule.write(toFile: tempPath, atomically: true, encoding: .utf8)
         
-        let script = "do shell script \"install -m 0440 -o root -g wheel \(tempPath) \(SudoersHelper.targetPath) && visudo -cf \(SudoersHelper.targetPath) && rm -f \(tempPath)\" with administrator privileges"
-        
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .default).async {
-                var error: NSDictionary?
-                guard let appleScript = NSAppleScript(source: script) else {
-                    continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize AppleScript"]))
-                    return
-                }
-                appleScript.executeAndReturnError(&error)
-                if let error = error {
-                    continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"]))
-                    return
-                }
-                continuation.resume()
-            }
-        }
-        await MainActor.run {
-            _ = self.checkSudoersConfiguration()
-        }
+        try await runPrivilegedShellCommand("install -m 0440 -o root -g wheel \(tempPath) \(SudoersHelper.targetPath) && visudo -cf \(SudoersHelper.targetPath) && rm -f \(tempPath)")
+        _ = self.checkSudoersConfiguration()
     }
     
     public func removeSudoersRule() async throws {
-        let script = "do shell script \"rm -f \(SudoersHelper.targetPath)\" with administrator privileges"
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .default).async {
-                var error: NSDictionary?
-                guard let appleScript = NSAppleScript(source: script) else {
-                    continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to initialize AppleScript"]))
-                    return
-                }
-                appleScript.executeAndReturnError(&error)
-                if let error = error {
-                    continuation.resume(throwing: NSError(domain: "LowPowerMenu", code: 1, userInfo: [NSLocalizedDescriptionKey: error["NSAppleScriptErrorMessage"] ?? "Operation failed"]))
-                    return
-                }
-                continuation.resume()
-            }
-        }
-        await MainActor.run {
-            _ = self.checkSudoersConfiguration()
-        }
+        try await runPrivilegedShellCommand("rm -f \(SudoersHelper.targetPath)")
+        _ = self.checkSudoersConfiguration()
     }
     
     public func openBatteryHealthSettings() {

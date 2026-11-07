@@ -13,6 +13,81 @@ private var globalHotKeyHandler: EventHandlerUPP = { (_, _, userData) -> OSStatu
 class GlobalShortcutManager {
     static let shared = GlobalShortcutManager()
     
+    static let keyCodeDefaultsKey = "globalShortcutKeyCode"
+    static let modifiersDefaultsKey = "globalShortcutModifiers"
+    static let displayDefaultsKey = "globalShortcutDisplay"
+    
+    static let defaultKeyCode: UInt32 = 0x23 // 'P'
+    static let defaultModifiers: UInt32 = UInt32(cmdKey | optionKey) // 2304
+    static let defaultDisplay: String = "⌘⌥P"
+    
+    var currentKeyCode: UInt32 {
+        let val = UserDefaults.standard.object(forKey: Self.keyCodeDefaultsKey) as? Int
+        return val.map(UInt32.init) ?? Self.defaultKeyCode
+    }
+    
+    var currentModifiers: UInt32 {
+        let val = UserDefaults.standard.object(forKey: Self.modifiersDefaultsKey) as? Int
+        return val.map(UInt32.init) ?? Self.defaultModifiers
+    }
+    
+    var currentDisplayString: String {
+        UserDefaults.standard.string(forKey: Self.displayDefaultsKey) ?? Self.defaultDisplay
+    }
+    
+    func registerSavedShortcut() {
+        register(keyCode: currentKeyCode, modifiers: currentModifiers)
+    }
+    
+    func saveAndRegister(keyCode: UInt32, modifiers: UInt32, display: String) {
+        UserDefaults.standard.set(Int(keyCode), forKey: Self.keyCodeDefaultsKey)
+        UserDefaults.standard.set(Int(modifiers), forKey: Self.modifiersDefaultsKey)
+        UserDefaults.standard.set(display, forKey: Self.displayDefaultsKey)
+        if UserDefaults.standard.bool(forKey: "enableGlobalShortcut") {
+            register(keyCode: keyCode, modifiers: modifiers)
+        }
+    }
+    
+    func resetToDefault() {
+        saveAndRegister(keyCode: Self.defaultKeyCode, modifiers: Self.defaultModifiers, display: Self.defaultDisplay)
+    }
+    
+    static func recordShortcut(from event: NSEvent) -> (keyCode: UInt32, modifiers: UInt32, display: String)? {
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        guard !flags.isEmpty else { return nil }
+        guard let chars = event.charactersIgnoringModifiers?.uppercased(), !chars.isEmpty else { return nil }
+        
+        var carbonMods: UInt32 = 0
+        var display = ""
+        if flags.contains(.control) {
+            carbonMods |= UInt32(controlKey)
+            display += "⌃"
+        }
+        if flags.contains(.option) {
+            carbonMods |= UInt32(optionKey)
+            display += "⌥"
+        }
+        if flags.contains(.shift) {
+            carbonMods |= UInt32(shiftKey)
+            display += "⇧"
+        }
+        if flags.contains(.command) {
+            carbonMods |= UInt32(cmdKey)
+            display += "⌘"
+        }
+        
+        let keyLabel: String
+        switch event.keyCode {
+        case 49: keyLabel = "Space"
+        case 36: keyLabel = "↩"
+        case 48: keyLabel = "⇥"
+        case 51: keyLabel = "⌫"
+        default: keyLabel = chars
+        }
+        display += keyLabel
+        return (UInt32(event.keyCode), carbonMods, display)
+    }
+    
     private var eventHandlerRef: EventHandlerRef?
     private var hotKeyRef: EventHotKeyRef?
     private var hotKeyID: EventHotKeyID?
@@ -72,7 +147,7 @@ class GlobalShortcutManager {
         )
         
         if installStatus != noErr {
-            print("GlobalShortcutManager: Failed to install event handler. Status: \(installStatus)")
+            NSLog("GlobalShortcutManager: Failed to install event handler. Status: %d", installStatus)
             return
         }
         self.eventHandlerRef = handlerRef
@@ -93,11 +168,10 @@ class GlobalShortcutManager {
         )
         
         if registerStatus != noErr {
-            print("GlobalShortcutManager: Failed to register hotkey. Status: \(registerStatus)")
+            NSLog("GlobalShortcutManager: Failed to register hotkey. Status: %d", registerStatus)
             unregister()
         } else {
             self.hotKeyRef = hotKeyRefOut
-            print("GlobalShortcutManager: Hotkey registered successfully.")
         }
     }
     
@@ -118,11 +192,9 @@ class GlobalShortcutManager {
             RemoveEventHandler(handler)
             eventHandlerRef = nil
         }
-        print("GlobalShortcutManager: Hotkey unregistered.")
     }
     
     func handleHotKey() {
-        print("GlobalShortcutManager: Hotkey Triggered!")
         // Use CFRunLoop in CommonModes to ensure execution even if a menu is open (modal tracking loop)
         let block: @convention(block) () -> Void = { [weak self] in
             self?.onShortcutTriggered?()

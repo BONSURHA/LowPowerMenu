@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Run unit tests
+        run: swift test --package-path Core
+
+      - name: Build macOS App (Release configuration)
+        run: |
+          xcodebuild clean build \
+            -scheme LowPowerMenu \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath ./DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package App and Generate SHA256
+        run: |
+          cd ./DerivedData/Build/Products/Release
+          zip -r -y "${GITHUB_WORKSPACE}/LowPowerMenu.zip" LowPowerMenu.app
+          cd "${GITHUB_WORKSPACE}"
+          shasum -a 256 LowPowerMenu.zip > LowPowerMenu.zip.sha256
+
+          mkdir -p ./dmg_staging
+          cp -R ./DerivedData/Build/Products/Release/LowPowerMenu.app ./dmg_staging/
+          ln -s /Applications ./dmg_staging/Applications
+          hdiutil create -volname "LowPowerMenu" -srcfolder ./dmg_staging -ov -format UDZO "${GITHUB_WORKSPACE}/LowPowerMenu.dmg"
+          rm -rf ./dmg_staging
+          cd "${GITHUB_WORKSPACE}"
+          shasum -a 256 LowPowerMenu.dmg > LowPowerMenu.dmg.sha256
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            LowPowerMenu.zip
+            LowPowerMenu.zip.sha256
+            LowPowerMenu.dmg
+            LowPowerMenu.dmg.sha256
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
